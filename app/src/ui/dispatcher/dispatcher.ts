@@ -5,6 +5,7 @@ import {
   IAPIPullRequest,
   IAPIFullRepository,
   IAPICheckSuite,
+  IAPIRepoRuleset,
 } from '../../lib/api'
 import { shell } from '../../lib/app-shell'
 import {
@@ -56,7 +57,7 @@ import { getTipSha } from '../../lib/tip'
 
 import { Account } from '../../models/account'
 import { AppMenu, ExecutableMenuItem } from '../../models/app-menu'
-import { IAuthor } from '../../models/author'
+import { Author, UnknownAuthor } from '../../models/author'
 import { Branch, IAheadBehind } from '../../models/branch'
 import { BranchesTab } from '../../models/branches-tab'
 import { CloneRepositoryTab } from '../../models/clone-repository-tab'
@@ -89,7 +90,7 @@ import {
 import { TipState, IValidBranch } from '../../models/tip'
 import { Banner, BannerType } from '../../models/banner'
 
-import { ApplicationTheme, ICustomTheme } from '../lib/application-theme'
+import { ApplicationTheme } from '../lib/application-theme'
 import { installCLI } from '../lib/install-cli'
 import {
   executeMenuItem,
@@ -692,6 +693,14 @@ export class Dispatcher {
     strategy?: UncommittedChangesStrategy
   ): Promise<Repository> {
     return this.appStore._checkoutBranch(repository, branch, strategy)
+  }
+
+  /** Check out the given commit. */
+  public checkoutCommit(
+    repository: Repository,
+    commit: CommitOneLine
+  ): Promise<Repository> {
+    return this.appStore._checkoutCommit(repository, commit)
   }
 
   /** Push the current branch. */
@@ -1550,6 +1559,30 @@ export class Dispatcher {
     await this.appStore._showCreateForkDialog(repository)
   }
 
+  public async showUnknownAuthorsCommitWarning(
+    authors: ReadonlyArray<UnknownAuthor>,
+    onCommitAnyway: () => void
+  ) {
+    return this.appStore._showPopup({
+      type: PopupType.UnknownAuthors,
+      authors,
+      onCommit: onCommitAnyway,
+    })
+  }
+
+  public async showRepoRulesCommitBypassWarning(
+    repository: GitHubRepository,
+    branch: string,
+    onConfirm: () => void
+  ) {
+    return this.appStore._showPopup({
+      type: PopupType.ConfirmRepoRulesBypass,
+      repository,
+      branch,
+      onConfirm,
+    })
+  }
+
   /**
    * Register a new error handler.
    *
@@ -2277,7 +2310,7 @@ export class Dispatcher {
    */
   public setCoAuthors(
     repository: Repository,
-    coAuthors: ReadonlyArray<IAuthor>
+    coAuthors: ReadonlyArray<Author>
   ) {
     return this.appStore._setCoAuthors(repository, coAuthors)
   }
@@ -2363,6 +2396,10 @@ export class Dispatcher {
     return this.appStore._setConfirmDiscardStashSetting(value)
   }
 
+  public setConfirmCheckoutCommitSetting(value: boolean) {
+    return this.appStore._setConfirmCheckoutCommitSetting(value)
+  }
+
   public setConfirmForcePushSetting(value: boolean) {
     return this.appStore._setConfirmForcePushSetting(value)
   }
@@ -2436,13 +2473,6 @@ export class Dispatcher {
    */
   public setSelectedTheme(theme: ApplicationTheme) {
     return this.appStore._setSelectedTheme(theme)
-  }
-
-  /**
-   * Set the custom application-wide theme
-   */
-  public setCustomTheme(theme: ICustomTheme) {
-    return this.appStore._setCustomTheme(theme)
   }
 
   /**
@@ -3491,6 +3521,7 @@ export class Dispatcher {
       tip.branch.tip.sha
     )
 
+    this.closePopup(PopupType.CommitMessage)
     this.showPopup({
       type: PopupType.MultiCommitOperation,
       repository,
@@ -3981,6 +4012,10 @@ export class Dispatcher {
     this.statsStore.recordPullRequestReviewDialogSwitchToPullRequest(reviewType)
   }
 
+  public recordPullRequestCommentDialogSwitchToPullRequest() {
+    this.statsStore.recordPullRequestCommentDialogSwitchToPullRequest()
+  }
+
   public showUnreachableCommits(selectedTab: UnreachableCommitsTab) {
     this.statsStore.recordMultiCommitDiffUnreachableCommitsDialogOpenedCount()
 
@@ -4050,5 +4085,13 @@ export class Dispatcher {
     value: PullRequestSuggestedNextAction
   ) {
     return this.appStore._setPullRequestSuggestedNextAction(value)
+  }
+
+  public appFocusedElementChanged() {
+    this.appStore._appFocusedElementChanged()
+  }
+
+  public updateCachedRepoRulesets(rulesets: Array<IAPIRepoRuleset | null>) {
+    this.appStore._updateCachedRepoRulesets(rulesets)
   }
 }

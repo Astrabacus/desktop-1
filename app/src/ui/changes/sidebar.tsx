@@ -29,6 +29,7 @@ import { filesNotTrackedByLFS } from '../../lib/git/lfs'
 import { getLargeFilePaths } from '../../lib/large-files'
 import { isConflictedFile, hasUnresolvedConflicts } from '../../lib/status'
 import { getAccountForRepository } from '../../lib/get-account-for-repository'
+import { IAheadBehind } from '../../models/branch'
 
 /**
  * The timeout for the animation of the enter/leave animation for Undo.
@@ -41,6 +42,7 @@ const UndoCommitAnimationTimeout = 500
 interface IChangesSidebarProps {
   readonly repository: Repository
   readonly changes: IChangesState
+  readonly aheadBehind: IAheadBehind | null
   readonly dispatcher: Dispatcher
   readonly commitAuthor: CommitIdentity | null
   readonly branch: string | null
@@ -82,6 +84,7 @@ export class ChangesSidebar extends React.Component<IChangesSidebarProps, {}> {
   private autocompletionProviders: ReadonlyArray<
     IAutocompletionProvider<any>
   > | null = null
+  private changesListRef = React.createRef<ChangesList>()
 
   public constructor(props: IChangesSidebarProps) {
     super(props)
@@ -248,6 +251,14 @@ export class ChangesSidebar extends React.Component<IChangesSidebarProps, {}> {
     const fullPath = Path.join(this.props.repository.path, path)
     openFile(fullPath, this.props.dispatcher)
   }
+  /**
+   * Called to open a file in the default external editor
+   *
+   * @param path The path of the file relative to the root of the repository
+   */
+  private onOpenItemInExternalEditor = (path: string) => {
+    this.props.onOpenInExternalEditor(path)
+  }
 
   /**
    * Toggles the selection of a given working directory file.
@@ -342,6 +353,10 @@ export class ChangesSidebar extends React.Component<IChangesSidebarProps, {}> {
     return this.renderMostRecentLocalCommit()
   }
 
+  public focus() {
+    this.changesListRef.current?.focus()
+  }
+
   public render() {
     const {
       workingDirectory,
@@ -351,6 +366,7 @@ export class ChangesSidebar extends React.Component<IChangesSidebarProps, {}> {
       conflictState,
       selection,
       currentBranchProtected,
+      currentRepoRulesInfo,
     } = this.props.changes
     let rebaseConflictState: RebaseConflictState | null = null
     if (conflictState !== null) {
@@ -371,8 +387,9 @@ export class ChangesSidebar extends React.Component<IChangesSidebarProps, {}> {
     )
 
     return (
-      <div className="panel">
+      <div className="panel" role="tabpanel" aria-labelledby="changes-tab">
         <ChangesList
+          ref={this.changesListRef}
           dispatcher={this.props.dispatcher}
           repository={this.props.repository}
           repositoryAccount={repositoryAccount}
@@ -407,7 +424,7 @@ export class ChangesSidebar extends React.Component<IChangesSidebarProps, {}> {
           showCoAuthoredBy={showCoAuthoredBy}
           coAuthors={coAuthors}
           externalEditorLabel={this.props.externalEditorLabel}
-          onOpenInExternalEditor={this.props.onOpenInExternalEditor}
+          onOpenItemInExternalEditor={this.onOpenItemInExternalEditor}
           onChangesListScrolled={this.props.onChangesListScrolled}
           changesListScrollTop={this.props.changesListScrollTop}
           stashEntry={this.props.changes.stashEntry}
@@ -415,6 +432,8 @@ export class ChangesSidebar extends React.Component<IChangesSidebarProps, {}> {
           currentBranchProtected={currentBranchProtected}
           shouldNudgeToCommit={this.props.shouldNudgeToCommit}
           commitSpellcheckEnabled={this.props.commitSpellcheckEnabled}
+          currentRepoRulesInfo={currentRepoRulesInfo}
+          aheadBehind={this.props.aheadBehind}
         />
         {this.renderUndoCommit(rebaseConflictState)}
       </div>

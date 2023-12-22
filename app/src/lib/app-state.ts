@@ -15,7 +15,7 @@ import {
   PullRequest,
   PullRequestSuggestedNextAction,
 } from '../models/pull-request'
-import { IAuthor } from '../models/author'
+import { Author } from '../models/author'
 import { MergeTreeResult } from '../models/merge'
 import { ICommitMessage } from '../models/commit-message'
 import {
@@ -31,11 +31,7 @@ import { SignInState } from './stores/sign-in-store'
 import { WindowState } from './window-state'
 import { Shell } from './shells'
 
-import {
-  ApplicableTheme,
-  ApplicationTheme,
-  ICustomTheme,
-} from '../ui/lib/application-theme'
+import { ApplicableTheme, ApplicationTheme } from '../ui/lib/application-theme'
 import { IAccountRepositories } from './stores/api-repositories-store'
 import { ManualConflictResolution } from '../models/manual-conflict-resolution'
 import { Banner } from '../models/banner'
@@ -50,6 +46,8 @@ import {
 } from '../models/multi-commit-operation'
 import { IChangesetData } from './git'
 import { Popup } from '../models/popup'
+import { RepoRulesInfo } from '../models/repo-rules'
+import { IAPIRepoRuleset } from './api'
 
 export enum SelectionType {
   Repository,
@@ -109,6 +107,16 @@ export interface IAppState {
    * where 1 equals 100% (ie actual size) and 2 represents 200%.
    */
   readonly windowZoomFactor: number
+
+  /**
+   * Whether or not the currently active element is itself, or is contained
+   * within, a resizable component. This is used to determine whether or not
+   * to enable the Expand/Contract pane menu items. Note that this doesn't
+   * necessarily mean that keyboard resides within the resizable component since
+   * using the Windows in-app menu bar will steal focus from the currently
+   * active element (but return it once closed).
+   */
+  readonly resizablePaneActive: boolean
 
   /**
    * A value indicating whether or not the current application
@@ -204,6 +212,9 @@ export interface IAppState {
   /** Should the app prompt the user to confirm a discard stash */
   readonly askForConfirmationOnDiscardStash: boolean
 
+  /** Should the app prompt the user to confirm a commit checkout? */
+  readonly askForConfirmationOnCheckoutCommit: boolean
+
   /** Should the app prompt the user to confirm a force push? */
   readonly askForConfirmationOnForcePush: boolean
 
@@ -261,9 +272,6 @@ export interface IAppState {
   /** The selected appearance (aka theme) preference */
   readonly selectedTheme: ApplicationTheme
 
-  /** The custom theme  */
-  readonly customTheme?: ICustomTheme
-
   /** The currently applied appearance (aka theme) */
   readonly currentTheme: ApplicableTheme
 
@@ -320,6 +328,12 @@ export interface IAppState {
   readonly pullRequestSuggestedNextAction:
     | PullRequestSuggestedNextAction
     | undefined
+
+  /**
+   * Cached repo rulesets. Used to prevent repeatedly querying the same
+   * rulesets to check their bypass status.
+   */
+  readonly cachedRepoRulesets: ReadonlyMap<number, IAPIRepoRuleset>
 }
 
 export enum FoldoutType {
@@ -685,7 +699,7 @@ export interface IChangesState {
    * Co-Authored-By commit message trailers depending on whether
    * the user has chosen to do so.
    */
-  readonly coAuthors: ReadonlyArray<IAuthor>
+  readonly coAuthors: ReadonlyArray<Author>
 
   /**
    * Stores information about conflicts in the working directory
@@ -710,6 +724,11 @@ export interface IChangesState {
 
   /** `true` if the GitHub API reports that the branch is protected */
   readonly currentBranchProtected: boolean
+
+  /**
+   * Repo rules that apply to the current branch.
+   */
+  readonly currentRepoRulesInfo: RepoRulesInfo
 }
 
 /**

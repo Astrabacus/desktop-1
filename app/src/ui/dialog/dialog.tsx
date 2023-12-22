@@ -4,6 +4,7 @@ import { DialogHeader } from './header'
 import { createUniqueId, releaseUniqueId } from '../lib/id-pool'
 import { getTitleBarHeight } from '../window/title-bar'
 import { isTopMostDialog } from './is-top-most'
+import { isMacOSVentura } from '../../lib/get-os'
 
 export interface IDialogStackContext {
   /** Whether or not this dialog is the top most one in the stack to be
@@ -130,7 +131,63 @@ interface IDialogProps {
    * of the loading operation.
    */
   readonly loading?: boolean
+
+  /** Whether or not to override focus of first element with close button */
+  readonly focusCloseButtonOnOpen?: boolean
 }
+
+/**
+ * If role is alertdialog, ariaDescribedBy is required.
+ */
+interface IAlertDialogProps extends IDialogProps {
+  /** This is used to point to an element containing content pertinent to the
+   * users workflow. This should be provided for dialogs that are alerts or
+   * confirmations so that that the information that is interrupting the user's
+   * workflow is screen reader announced and acquire a response */
+  readonly ariaDescribedBy: string
+
+  /** By default, a dialog has role of "dialog" and requires the use of an
+   * "aria-label" or "aria-labelledby" to accessibily announce the title or
+   * purpose of the header. This is typically accomplished by providing the
+   * `title` prop and the dialog component will take care of adding the
+   * `aria-labelledby` attribute.
+   *
+   * However, if the dialog is an alert or confirmation dialog we should use the
+   * role of `alertdialog` AND the `ariaDescribedBy` prop should be provided
+   * containing the id of the element with the information required by the user
+   * to proceed or be made aware of to ensure it is also read by screen readers.
+   *
+   *
+   * https://www.w3.org/TR/wai-aria-1.1/#alertdialog
+   * "An alert dialog is a modal dialog that interrupts the user's workflow to
+   * communicate an important message and acquire a response. Examples include
+   * action confirmation prompts and error message confirmations. The
+   * alertdialog role enables assistive technologies and browsers to distinguish
+   * alert dialogs from other dialogs so they have the option of giving alert
+   * dialogs special treatment, such as playing a system alert sound."
+   * */
+  readonly role: 'alertdialog'
+}
+
+/**
+ * If role is undefined or dialog, ariaDescribedBy is optional.
+ */
+interface IDescribedByDialogProps extends IDialogProps {
+  /** This is used to point to an element containing content pertinent to the
+   * users workflow. This should be provided for dialogs that are alerts or
+   * confirmations so that that the information that is interrupting the user's
+   * workflow is screen reader announced and acquire a response */
+  readonly ariaDescribedBy?: string
+
+  /** By default, a dialog has role of "dialog". This is only required for a
+   * role of 'alertdialog' in which case  `ariaDescribedBy` must also be
+   * provided */
+  readonly role?: 'dialog'
+}
+
+/** Interface union to force usage of `ariaDescribedBy` if role of `alertdialog`
+ * is used */
+type DialogProps = IAlertDialogProps | IDescribedByDialogProps
 
 interface IDialogState {
   /**
@@ -163,7 +220,7 @@ interface IDialogState {
  * underlying elements. It's not possible to use the tab key to move focus
  * out of the dialog without first dismissing it.
  */
-export class Dialog extends React.Component<IDialogProps, IDialogState> {
+export class Dialog extends React.Component<DialogProps, IDialogState> {
   public static contextType = DialogStackContext
   public declare context: React.ContextType<typeof DialogStackContext>
 
@@ -190,7 +247,7 @@ export class Dialog extends React.Component<IDialogProps, IDialogState> {
   private readonly resizeObserver: ResizeObserver
   private resizeDebounceId: number | null = null
 
-  public constructor(props: IDialogProps) {
+  public constructor(props: DialogProps) {
     super(props)
     this.state = { isAppearing: true }
 
@@ -413,14 +470,23 @@ export class Dialog extends React.Component<IDialogProps, IDialogState> {
     // anchor tag masquerading as a button)
     let firstTabbable: HTMLElement | null = null
 
-    const closeButton = dialog.querySelector(':scope > header button.close')
+    const closeButton = dialog.querySelector(
+      ':scope > div.dialog-header button.close'
+    )
+
+    if (
+      closeButton instanceof HTMLElement &&
+      this.props.focusCloseButtonOnOpen
+    ) {
+      closeButton.focus()
+      return
+    }
 
     const excludedInputTypes = [
       ':not([type=button])',
       ':not([type=submit])',
       ':not([type=reset])',
       ':not([type=hidden])',
-      ':not([type=checkbox])',
       ':not([type=radio])',
     ]
 
@@ -507,7 +573,7 @@ export class Dialog extends React.Component<IDialogProps, IDialogState> {
     this.checkIsTopMostDialog(false)
   }
 
-  public componentDidUpdate(prevProps: IDialogProps) {
+  public componentDidUpdate(prevProps: DialogProps) {
     if (!this.props.title && this.state.titleId) {
       this.updateTitleId()
     }
@@ -657,6 +723,58 @@ export class Dialog extends React.Component<IDialogProps, IDialogState> {
     )
   }
 
+  /**
+   * Gets the aria-labelledby and aria-describedby attributes for the dialog
+   * element.
+   *
+   * The correct semantics are that the dialog element should have the
+   * aria-labelledby and the aria-describedby is optional unless the dialog has
+   * a role of alertdialog, in which case both are required.
+   *
+   * However, macOs Ventura introduced a regression in that:
+   *
+   * For role of 'dialog' (default),  the aria-labelledby is not announced and
+   *    if provided prevents the aria-describedby from being announced. Thus,
+   *    this method will add the aria-labelledby to the aria-describedby in this
+   *    case.
+   *
+   * For role of 'alertdialog', the aria-labelledby is announced but not the
+   *    aria-describedby. Thus, this method will add both to the
+   *    aria-labelledby.
+   *
+   * Neither of the above is semantically correct tho, hopefully, macOs will be
+   * fixed in a future release. The issue is known for macOS versions 13.0 to
+   * the current version of 13.5 as of 2023-07-31.
+   *
+   * A known macOS behavior is that if two ids are provided to the
+   * aria-describedby only the first one is announced with a note about the
+   * second one existing. This currently does not impact us as we only provide
+   * one id for non-alert dialogs and the alert dialogs are handled with the
+   * `aria-labelledby` where both ids are announced.
+   *
+   */
+  private getAriaAttributes() {
+    if (!isMacOSVentura()) {
+      // correct semantics for all other os
+      return {
+        'aria-labelledby': this.state.titleId,
+        'aria-describedby': this.props.ariaDescribedBy,
+      }
+    }
+
+    if (this.props.role === 'alertdialog') {
+      return {
+        'aria-labelledby': `${this.state.titleId} ${this.props.ariaDescribedBy}`,
+      }
+    }
+
+    return {
+      'aria-describedby': `${this.state.titleId} ${
+        this.props.ariaDescribedBy ?? ''
+      }`,
+    }
+  }
+
   public render() {
     const className = classNames(
       {
@@ -672,10 +790,11 @@ export class Dialog extends React.Component<IDialogProps, IDialogState> {
       <dialog
         ref={this.onDialogRef}
         id={this.props.id}
+        role={this.props.role}
         onMouseDown={this.onDialogMouseDown}
         onKeyDown={this.onKeyDown}
         className={className}
-        aria-labelledby={this.state.titleId}
+        {...this.getAriaAttributes()}
         tabIndex={-1}
       >
         {this.renderHeader()}
